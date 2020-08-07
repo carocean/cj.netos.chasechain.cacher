@@ -98,8 +98,9 @@ public class DefaultTrafficPoolService implements ITrafficPoolService, Constants
                     if (item.getCtime() > endTime) {
                         endTime = item.getCtime();
                     }
-                    String value = String.format("%s@%s", pool.getId(), item.getId());
-                    jedisCluster.sadd(redis_cacher_pool_item_key, value);
+                    //缓冲内容物
+                    String key = String.format("%s.%s",redis_cacher_pool_item_key,pool.getId());
+                    jedisCluster.sadd(key, item.getId());
                 }
             }
         } finally {
@@ -120,7 +121,8 @@ public class DefaultTrafficPoolService implements ITrafficPoolService, Constants
             offset += pools.size();
             for (TrafficPool pool : pools) {
                 trafficCacherService.resetPool(pool.getId());
-                jedisCluster.del(redis_cacher_pool_item_key);
+                String key = String.format("%s.%s",redis_cacher_pool_item_key,pool.getId());
+                jedisCluster.del(key);
                 CJSystem.logging().info(getClass(), String.format("已重置池:%s[%s]", pool.getTitle(), pool.getId()));
             }
         }
