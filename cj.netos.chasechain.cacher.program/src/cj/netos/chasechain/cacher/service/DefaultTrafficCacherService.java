@@ -67,6 +67,6 @@ public class DefaultTrafficCacherService extends AbstractService implements ITra
             return;
         }
         TrafficCacherPointer pointer = document.tuple();
-        cube.deleteDocs(TrafficCacherPointer._COL_NAME, String.format("{'tuple.lastBubbleTime':{'$lt':%s}}", pointer.getLastCacheTime()));
+        cube.deleteDocs(TrafficCacherPointer._COL_NAME, String.format("{'tuple.lastCacheTime':{'$lt':%s}}", pointer.getLastCacheTime()));
     }
 }
