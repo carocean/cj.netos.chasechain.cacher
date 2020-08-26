@@ -12,4 +12,6 @@ public interface ITrafficCacherService {
 
     void resetPool(String id) throws CircuitException;
 
+    void clearPointersExceptTop(String pool, int retains) throws CircuitException;
+
 }

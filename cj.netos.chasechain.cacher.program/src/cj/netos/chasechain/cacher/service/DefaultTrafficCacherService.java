@@ -16,6 +16,7 @@ import org.bson.Document;
 public class DefaultTrafficCacherService extends AbstractService implements ITrafficCacherService {
 
     ITrafficPoolService trafficPoolService;
+
     @Override
     public TrafficCacherPointer getPointer(String pool) throws CircuitException {
         ICube cube = cube(pool);
@@ -53,5 +54,19 @@ public class DefaultTrafficCacherService extends AbstractService implements ITra
     public void resetPool(String pool) throws CircuitException {
         ICube cube = cube(pool);
         cube.dropTuple(TrafficCacherPointer._COL_NAME);
+    }
+
+    @Override
+    public void clearPointersExceptTop(String pool, int retains) throws CircuitException {
+        ICube cube = cube(pool);
+        //在etl.work项目中的AbstractService类中已建索引为倒序
+        String cjql = String.format("select {'tuple':'*'}.sort({'tuple.lastCacheTime':-1}).limit(1).skip(%s) from tuple %s %s where {}", retains - 1, TrafficCacherPointer._COL_NAME, TrafficCacherPointer.class.getName());
+        IQuery<TrafficCacherPointer> query = cube.createQuery(cjql);
+        IDocument<TrafficCacherPointer> document = query.getSingleResult();
+        if (document == null) {
+            return;
+        }
+        TrafficCacherPointer pointer = document.tuple();
+        cube.deleteDocs(TrafficCacherPointer._COL_NAME, String.format("{'tuple.lastBubbleTime':{'$lt':%s}}", pointer.getLastCacheTime()));
     }
 }

@@ -6,9 +6,12 @@ import cj.lns.chip.sos.cube.framework.IQuery;
 import cj.lns.chip.sos.cube.framework.TupleDocument;
 import cj.netos.chasechain.cacher.*;
 import cj.studio.ecm.CJSystem;
+import cj.studio.ecm.IServiceSite;
 import cj.studio.ecm.annotation.CjService;
 import cj.studio.ecm.annotation.CjServiceRef;
+import cj.studio.ecm.annotation.CjServiceSite;
 import cj.studio.ecm.net.CircuitException;
+import cj.ultimate.util.StringUtil;
 import redis.clients.jedis.JedisCluster;
 
 import java.util.ArrayList;
@@ -28,7 +31,8 @@ public class DefaultTrafficPoolService implements ITrafficPoolService, Constants
     @CjServiceRef(refByName = "defaultContentItemService")
     IContentItemService contentItemService;
     Map<Integer, LevelCacheSize> levelCacheSizeMap;
-
+    @CjServiceSite
+    IServiceSite site;
     @Override
     public TrafficPool getTrafficPool(String trafficPool) {
         String cjql = String.format("select {'tuple':'*'} from tuple %s %s where {'tuple.id':'%s'}", TrafficPool._COL_NAME, TrafficPool.class.getName(), trafficPool);
@@ -105,8 +109,15 @@ public class DefaultTrafficPoolService implements ITrafficPoolService, Constants
             }
         } finally {
             trafficCacherService.movePointer(pool.getId(), pointer, endTime);
+            clearCachePointerHistories(pool.getId());
             CJSystem.logging().info(getClass(), String.format("流量池缓冲完成:%s[%s]，实际缓冲了 %s 个。", pool.getTitle(), pool.getId(), offset));
         }
+    }
+
+    private void clearCachePointerHistories(String pool) throws CircuitException {
+        String retainsStr = site.getProperty("traffic.cache.pointers.retains");
+        int retains = StringUtil.isEmpty(retainsStr) ? 10 : Integer.valueOf(retainsStr);
+        trafficCacherService.clearPointersExceptTop(pool,retains);
     }
 
     @Override
