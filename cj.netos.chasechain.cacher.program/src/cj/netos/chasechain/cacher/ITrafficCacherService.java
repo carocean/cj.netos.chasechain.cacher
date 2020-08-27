@@ -7,11 +7,12 @@ public interface ITrafficCacherService {
 
     TrafficCacherPointer getPointer(String pool) throws CircuitException;
 
-    void movePointer(String pool, TrafficCacherPointer fromPointer, long lastItemTime) throws CircuitException;
+    void moveItemPointer(String pool, TrafficCacherPointer fromPointer, long lastItemTime) throws CircuitException;
 
+
+    void moveBehaviorPointer(String sourcePool, TrafficCacherPointer fromPointer, long endTime) throws CircuitException;
 
     void resetPool(String id) throws CircuitException;
 
-    void clearPointersExceptTop(String pool, int retains) throws CircuitException;
 
 }

@@ -11,7 +11,6 @@ import cj.studio.ecm.annotation.CjService;
 import cj.studio.ecm.annotation.CjServiceRef;
 import cj.studio.ecm.annotation.CjServiceSite;
 import cj.studio.ecm.net.CircuitException;
-import cj.ultimate.util.StringUtil;
 import redis.clients.jedis.JedisCluster;
 
 import java.util.ArrayList;
@@ -33,6 +32,7 @@ public class DefaultTrafficPoolService implements ITrafficPoolService, Constants
     Map<Integer, LevelCacheSize> levelCacheSizeMap;
     @CjServiceSite
     IServiceSite site;
+
     @Override
     public TrafficPool getTrafficPool(String trafficPool) {
         String cjql = String.format("select {'tuple':'*'} from tuple %s %s where {'tuple.id':'%s'}", TrafficPool._COL_NAME, TrafficPool.class.getName(), trafficPool);
@@ -81,6 +81,12 @@ public class DefaultTrafficPoolService implements ITrafficPoolService, Constants
 
     @Override
     public void cache(TrafficPool pool) throws CircuitException {
+        _cacheOnNewItems(pool);
+        _cacheOnBehaviorItems(pool);
+    }
+
+
+    private void _cacheOnNewItems(TrafficPool pool) throws CircuitException {
         LevelCacheSize levelCacheSize = levelCacheSizeMap.get(pool.getLevel());//1级池缓冲多少；2级多少；常规多少等等
         int cacheSize = 10000;
         if (levelCacheSize != null) {
@@ -91,6 +97,7 @@ public class DefaultTrafficPoolService implements ITrafficPoolService, Constants
         long offset = 0;
         long endTime = 0;
         TrafficCacherPointer pointer = trafficCacherService.getPointer(pool.getId());
+        //目的是缓冲一个cacheSize > offset的区间的物品，并且以物品的上次创建时间为基点，即在池中有新的来就缓冲它
         try {
             while (cacheSize > offset) {
                 List<ContentItem> items = contentItemService.pageContentItem(pool.getId(), pointer, limit, offset);
@@ -103,21 +110,38 @@ public class DefaultTrafficPoolService implements ITrafficPoolService, Constants
                         endTime = item.getCtime();
                     }
                     //缓冲内容物
-                    String key = String.format("%s.%s",redis_cacher_pool_item_key,pool.getId());
+                    String key = String.format("%s.%s", redis_cacher_pool_item_key, pool.getId());
                     jedisCluster.sadd(key, item.getId());
                 }
             }
         } finally {
-            trafficCacherService.movePointer(pool.getId(), pointer, endTime);
-            clearCachePointerHistories(pool.getId());
-            CJSystem.logging().info(getClass(), String.format("流量池缓冲完成:%s[%s]，实际缓冲了 %s 个。", pool.getTitle(), pool.getId(), offset));
+            trafficCacherService.moveItemPointer(pool.getId(), pointer, endTime);
+            CJSystem.logging().info(getClass(), String.format("流量池按内容物的创建时间缓冲完成:%s[%s]，实际缓冲了 %s 个。", pool.getTitle(), pool.getId(), offset));
         }
     }
 
-    private void clearCachePointerHistories(String pool) throws CircuitException {
-        String retainsStr = site.getProperty("traffic.cache.pointers.retains");
-        int retains = StringUtil.isEmpty(retainsStr) ? 10 : Integer.valueOf(retainsStr);
-        trafficCacherService.clearPointersExceptTop(pool,retains);
+    private void _cacheOnBehaviorItems(TrafficPool pool) throws CircuitException {
+        int limit = 100;
+        long offset = 0;
+        TrafficCacherPointer pointer = trafficCacherService.getPointer(pool.getId());
+        //实际上不可能缓冲所有物品，因此缓冲的策略应用：1。有新物品则缓冲；2。已有物品的行为有更新则缓冲它（不按活跃度）
+        try {
+            while (true) {
+                List<ItemBehavior> items = contentItemService.pageBehavior(pool.getId(), pointer, limit, offset);
+                if (items.isEmpty()) {
+                    break;
+                }
+                offset += items.size();
+                for (ItemBehavior itemBehavior : items) {
+                    //缓冲内容物
+                    String key = String.format("%s.%s", redis_cacher_pool_item_key, pool.getId());
+                    jedisCluster.sadd(key, itemBehavior.getItem());
+                }
+            }
+        } finally {
+            trafficCacherService.moveBehaviorPointer(pool.getId(), pointer, System.currentTimeMillis());
+            CJSystem.logging().info(getClass(), String.format("流量池按内容物行为变动时间缓冲完成:%s[%s]，实际缓冲了 %s 个。", pool.getTitle(), pool.getId(), offset));
+        }
     }
 
     @Override
@@ -132,7 +156,7 @@ public class DefaultTrafficPoolService implements ITrafficPoolService, Constants
             offset += pools.size();
             for (TrafficPool pool : pools) {
                 trafficCacherService.resetPool(pool.getId());
-                String key = String.format("%s.%s",redis_cacher_pool_item_key,pool.getId());
+                String key = String.format("%s.%s", redis_cacher_pool_item_key, pool.getId());
                 jedisCluster.del(key);
                 CJSystem.logging().info(getClass(), String.format("已重置池:%s[%s]", pool.getTitle(), pool.getId()));
             }
