@@ -31,6 +31,7 @@ public class TrafficPoolCommand implements ICacherCommand {
                 synchronized (pool.getId()) {
                     CJSystem.logging().info(getClass(), String.format("正在缓冲池:%s[%s] ...", pool.getTitle(), pool.getId()));
                     trafficPoolService.cache(pool);
+                    CJSystem.logging().info(getClass(), String.format("完成缓冲池:%s[%s]", pool.getTitle(), pool.getId()));
                 }
             }
         }

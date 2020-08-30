@@ -81,24 +81,24 @@ public class DefaultTrafficPoolService implements ITrafficPoolService, Constants
 
     @Override
     public void cache(TrafficPool pool) throws CircuitException {
-        _cacheOnNewItems(pool);
-        _cacheOnBehaviorItems(pool);
+        TrafficCacherPointer pointer = trafficCacherService.getPointer(pool.getId());
+        _cacheOnNewItems(pool, pointer);
+        _cacheOnBehaviorItems(pool, pointer);
     }
 
 
-    private void _cacheOnNewItems(TrafficPool pool) throws CircuitException {
+    private void _cacheOnNewItems(TrafficPool pool, TrafficCacherPointer pointer) throws CircuitException {
         LevelCacheSize levelCacheSize = levelCacheSizeMap.get(pool.getLevel());//1级池缓冲多少；2级多少；常规多少等等
         int cacheSize = 10000;
         if (levelCacheSize != null) {
             cacheSize = levelCacheSize.getCapacity();
         }
-        CJSystem.logging().info(getClass(), String.format("流量池：%s[%s]的缓冲区大小是:%s", pool.getTitle(), pool.getId(), cacheSize));
+        CJSystem.logging().info(getClass(), String.format("\t%s的缓冲区大小:%s", pool.getTitle(), cacheSize));
         int limit = 100;
         long offset = 0;
         long endTime = 0;
-        TrafficCacherPointer pointer = trafficCacherService.getPointer(pool.getId());
-        //目的是缓冲一个cacheSize > offset的区间的物品，并且以物品的上次创建时间为基点，即在池中有新的来就缓冲它
         try {
+            //目的是缓冲一个cacheSize > offset的区间的物品，并且以物品的上次创建时间为基点，即在池中有新的来就缓冲它
             while (cacheSize > offset) {
                 List<ContentItem> items = contentItemService.pageContentItem(pool.getId(), pointer, limit, offset);
                 if (items.isEmpty()) {
@@ -116,14 +116,15 @@ public class DefaultTrafficPoolService implements ITrafficPoolService, Constants
             }
         } finally {
             trafficCacherService.moveItemPointer(pool.getId(), pointer, endTime);
-            CJSystem.logging().info(getClass(), String.format("流量池按内容物的创建时间缓冲完成:%s[%s]，实际缓冲了 %s 个。", pool.getTitle(), pool.getId(), offset));
+            CJSystem.logging().info(getClass(), String.format("\t按内容物的创建时间缓冲完成:%s，实际缓冲了 %s 个。", pool.getTitle(), offset));
         }
+
     }
 
-    private void _cacheOnBehaviorItems(TrafficPool pool) throws CircuitException {
+    private void _cacheOnBehaviorItems(TrafficPool pool, TrafficCacherPointer pointer) throws CircuitException {
         int limit = 100;
         long offset = 0;
-        TrafficCacherPointer pointer = trafficCacherService.getPointer(pool.getId());
+        long endTime = 0;
         //实际上不可能缓冲所有物品，因此缓冲的策略应用：1。有新物品则缓冲；2。已有物品的行为有更新则缓冲它（不按活跃度）
         try {
             while (true) {
@@ -133,15 +134,19 @@ public class DefaultTrafficPoolService implements ITrafficPoolService, Constants
                 }
                 offset += items.size();
                 for (ItemBehavior itemBehavior : items) {
+                    if (itemBehavior.getUtime() > endTime) {
+                        endTime = itemBehavior.getUtime();
+                    }
                     //缓冲内容物
                     String key = String.format("%s.%s", redis_cacher_pool_item_key, pool.getId());
                     jedisCluster.sadd(key, itemBehavior.getItem());
                 }
             }
         } finally {
-            trafficCacherService.moveBehaviorPointer(pool.getId(), pointer, System.currentTimeMillis());
-            CJSystem.logging().info(getClass(), String.format("流量池按内容物行为变动时间缓冲完成:%s[%s]，实际缓冲了 %s 个。", pool.getTitle(), pool.getId(), offset));
+            trafficCacherService.moveBehaviorPointer(pool.getId(), pointer, endTime);
+            CJSystem.logging().info(getClass(), String.format("\t按内容物行为变动时间缓冲完成:%s，实际缓冲了 %s 个。", pool.getTitle(), offset));
         }
+
     }
 
     @Override
